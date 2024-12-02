@@ -3,7 +3,6 @@ use std::io::BufRead as _;
 use anyhow::Result;
 use clap::Parser;
 
-// Clap struct with a single positional argument: a path to a file
 #[derive(Parser)]
 struct Args {
     file: String,
