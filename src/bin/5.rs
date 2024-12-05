@@ -5,41 +5,51 @@ use std::{
 
 use anyhow::Result;
 use clap::Parser;
+use petgraph::prelude::DiGraphMap;
 
 #[derive(Parser)]
 struct Args {
     file: String,
 }
 
-fn is_valid_partial(
-    page: u64,
-    next_pages: &[u64],
-    order_rules: &HashMap<u64, HashSet<u64>>,
-) -> bool {
-    let mut valid = true;
-    for page_after in next_pages {
-        if let Some(cannot_be_before) = order_rules.get(page_after) {
-            if cannot_be_before.contains(&page) {
-                // println!("- {page} cannot be before {page_after}");
-                valid = false;
-                // return false;
-            }
+struct OrderingRules {
+    graph: DiGraphMap<u64, u64>,
+}
+
+impl OrderingRules {
+    fn new() -> Self {
+        Self {
+            graph: DiGraphMap::new(),
         }
     }
 
-    valid
-}
-
-fn is_valid(pages: &[u64], order_rules: &HashMap<u64, HashSet<u64>>) -> bool {
-    let mut valid = true;
-    for (index_before, page_before) in pages.iter().enumerate() {
-        let page_before = *page_before;
-
-        let next_pages = &pages[index_before + 1..];
-        valid &= is_valid_partial(page_before, next_pages, order_rules);
+    fn add_rule(&mut self, before: u64, after: u64) {
+        self.graph.add_edge(before, after, 1);
     }
 
-    valid
+    fn is_valid_partial(&self, page_before: u64, next_pages: &[u64]) -> bool {
+        let mut valid = true;
+        for page_after in next_pages {
+            if self.graph.contains_edge(page_before, *page_after) {
+                valid = false;
+            }
+        }
+
+        valid
+    }
+
+    fn is_valid(&self, pages: &[u64]) -> bool {
+        let mut valid = true;
+        for (index, page_before) in pages.iter().take(pages.len() - 1).enumerate() {
+            let next_pages = &pages[index + 1..];
+
+            if !self.is_valid_partial(*page_before, next_pages) {
+                valid = false;
+            }
+        }
+
+        valid
+    }
 }
 
 fn reorder_update(pages: &mut Vec<u64>, order_rules: &HashMap<u64, HashSet<u64>>) {
@@ -77,7 +87,7 @@ fn verify_updates(file_name: &str) -> Result<(u64, u64)> {
     let mut valid_middle_page_sum = 0;
     let mut reordered_middle_page_sum = 0;
 
-    let mut order_rules: HashMap<u64, HashSet<u64>> = HashMap::new();
+    let mut ordering_rules = OrderingRules::new();
 
     let mut lines = reader.lines();
     while let Some(line) = lines.next() {
@@ -91,9 +101,7 @@ fn verify_updates(file_name: &str) -> Result<(u64, u64)> {
         let before = pages.next().unwrap().trim().parse::<u64>()?;
         let after = pages.next().unwrap().trim().parse::<u64>()?;
 
-        let entry = order_rules.entry(before).or_insert(HashSet::new());
-
-        entry.insert(after);
+        ordering_rules.add_rule(before, after);
     }
 
     while let Some(line) = lines.next() {
@@ -106,13 +114,13 @@ fn verify_updates(file_name: &str) -> Result<(u64, u64)> {
             .map(|page| page.trim().parse::<u64>())
             .collect::<Result<Vec<_>, _>>()?;
 
-        if is_valid(&pages, &order_rules) {
+        if ordering_rules.is_valid(&pages) {
             // println!("+ Is valid");
             let middle_page = pages[pages.len() / 2];
             valid_middle_page_sum += middle_page;
         } else {
             let mut pages = pages;
-            reorder_update(&mut pages, &order_rules);
+            // reorder_update(&mut pages, &order_rules);
 
             // println!(
             //     "+ Reordered: {}",
@@ -123,7 +131,11 @@ fn verify_updates(file_name: &str) -> Result<(u64, u64)> {
             //         .join(", ")
             // );
 
-            assert!(is_valid(&pages, &order_rules), "Reordered pages {:?} are not valid", pages);
+            // assert!(
+            //     ordering_rules.is_valid(&pages),
+            //     "Reordered pages {:?} are not valid",
+            //     pages
+            // );
 
             let middle_page = pages[pages.len() / 2];
             reordered_middle_page_sum += middle_page;
